@@ -143,16 +143,12 @@ class SessionController extends Controller
             }
         }
 
-        // Mojang 也没命中：转发给 MUA 中央站，让它去 fan-out 联盟成员站。
-        // 中央站签出的 profile 用联盟共享私钥签名，本站公钥能校验通过。
+        // 本站与 Mojang 均未命中时，向 MUA 中央站查询联盟会话。
         if (option('union_member_key') !== '') {
             Log::channel('ygg')->info("Forwarding hasJoined for player [$name] to MUA union upstream.");
             $forwarded = $this->hasJoinedUnion($name, $serverId, $ip);
             if ($forwarded !== null) {
-                // 撞名处理：MUA 中央站的 hasJoined 不会改写返回体的 name，所以联盟里有重名时
-                // 本地玩家 + 跨站玩家会以同名进同一台 proxy，触发 "you already connected to the proxy"。
-                // 跟 MUA 主站当 authlib 时一致的做法是：在 hasJoined 响应里给跨站玩家加 _MUA 后缀，
-                // 同时把 properties[].value 里嵌的 profileName 一并改写并用本站（=联盟共享）私钥重签。
+                // 同名跨站玩家使用可用的后缀名，并同步改写、重签材质中的 profileName。
                 $forwardedUuid = strtolower(str_replace('-', '', $forwarded['id'] ?? ''));
                 $forwardedName = $forwarded['name'] ?? '';
                 $localCollision = DB::table('uuid')
@@ -244,52 +240,7 @@ class SessionController extends Controller
                 ->first();
 
             if (! $binding) {
-                // 检查是否有等待中的绑定申请，有则自动完成绑定
-                if (Schema::hasTable('pending_mojang_bind')) {
-                    $query = DB::table('pending_mojang_bind')
-                        ->where('created_at', '>=', now()->subMinutes(15));
-
-                    if (Schema::hasColumn('pending_mojang_bind', 'mojang_uuid')) {
-                        // 优先按 UUID 匹配：不受大小写、改名影响。
-                        // 旧的、没有 UUID 的申请记录则回退到按名字（忽略大小写）匹配。
-                        $query->where(function ($q) use ($mojangUuid, $name) {
-                            $q->where('mojang_uuid', $mojangUuid)
-                                ->orWhere(function ($q2) use ($name) {
-                                    $q2->whereNull('mojang_uuid')
-                                        ->whereRaw('LOWER(mojang_name) = ?', [strtolower($name)]);
-                                });
-                        });
-                    } else {
-                        $query->whereRaw('LOWER(mojang_name) = ?', [strtolower($name)]);
-                    }
-
-                    $pending = $query->orderBy('created_at', 'desc')->first();
-
-                    if ($pending) {
-                        $pendingUser = User::find($pending->user_id);
-                        $pendingPlayer = $pendingUser && $pendingUser->permission != User::BANNED
-                            ? Player::where('uid', $pending->user_id)->first()
-                            : null;
-
-                        if (! $pendingPlayer) {
-                            Log::channel('ygg')->warning("Pending bind for user [{$pending->user_id}] has no player character — create a character on the skin server first.");
-                        }
-
-                        if ($pendingPlayer) {
-                            DB::table('mojang_verifications')->updateOrInsert(
-                                ['user_id' => $pending->user_id],
-                                ['mojang_uuid' => $mojangUuid]
-                            );
-                            DB::table('pending_mojang_bind')
-                                ->where('user_id', $pending->user_id)
-                                ->delete();
-
-                            Log::channel('ygg')->info("Auto-bound Mojang [$mojangUuid / $name] to bs user [{$pending->user_id}]");
-                            return Profile::createFromPlayer($pendingPlayer);
-                        }
-                    }
-                }
-
+                // New bindings require an encrypted login proof and explicit web confirmation.
                 Log::channel('ygg')->info("Mojang uuid [$mojangUuid] has no binding, rejecting.");
                 return null;
             }
@@ -313,14 +264,7 @@ class SessionController extends Controller
     }
 
     /**
-     * 在 forwarded profile 上把 name 改成 $newName，并对 properties[].value 重签。
-     *
-     * 改写点：
-     *   - top-level `name`
-     *   - `properties[].value`（base64 解开后里面的 JSON 也有个 `profileName` 字段，需要同步）
-     *   - `properties[].signature`（用本站 = 联盟共享私钥重签）
-     *
-     * 联盟所有成员校验签名都是同一把公钥，签得通过。
+     * 同步修改角色名与材质中的 profileName，并使用本站配置的私钥重新签名。
      */
     protected function renameAndResign(array $profile, string $newName): array
     {
@@ -329,7 +273,7 @@ class SessionController extends Controller
         $key = openssl_pkey_get_private(option('ygg_private_key'));
         if (! $key) {
             Log::channel('ygg')->warning('Cannot resign forwarded profile: private key invalid; returning unsigned rename.');
-            // 没签名 launcher 通常也就进不了服 —— 这种情况下我们救不了，但起码改名是改了。
+            // 私钥无效时返回未签名材质，由客户端决定是否接受。
             foreach ($profile['properties'] ?? [] as &$prop) {
                 if (($prop['name'] ?? '') === 'textures') {
                     $decoded = json_decode(base64_decode($prop['value']), true);

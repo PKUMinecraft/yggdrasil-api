@@ -47,20 +47,15 @@ return function (Filter $filter, Dispatcher $events) {
 
         if (!$original || $original === $new) return;
 
-        // 要是能执行到这里就说明新的角色名已经没人在用了
-        // 所以残留着的 UUID 映射删掉也没问题
+        // 新名字已通过唯一性校验，先清除残留映射再迁移原 UUID。
         DB::table('uuid')->where('name', $new)->delete();
         DB::table('uuid')->where('name', $original)->update(['name' => $new]);
     };
 
-    // 仅当 UUID 生成算法为「随机生成」时保证修改角色名后 UUID 一致
-    // 因为另一种 UUID 生成算法要最大限度兼容盗版模式，所以不做修改
-    if (option('ygg_uuid_algorithm') == 'v4') {
-        App\Models\Player::updating($callback);
-    }
+    // v3 模式改名也保留 UUID；旧名字被重新注册时由 Profile 处理 UUID 冲突。
+    App\Models\Player::updating($callback);
 
-    // ===== MUA 联合认证：把角色变更同步给中央服务器 =====
-    // 仅当配置了 union_member_key 时才尝试同步，避免本地开发/未入盟环境无意义请求。
+    // 配置成员密钥后，将角色变更同步到 MUA 中央服务器。
     $unionPush = function (string $method, string $url, array $payload = null) {
         if (option('union_member_key') === '') {
             return;
@@ -98,11 +93,7 @@ return function (Filter $filter, Dispatcher $events) {
         }
     });
 
-    // 角色改名：分两种情况对齐到中央服务器。
-    //   - v4 算法：fork 的 updating 钩子已经把 (old_name, old_uuid) 原地改成 (new_name, old_uuid)，
-    //     UUID 不变，用 PUT /profile/{uuid} 改名即可。
-    //   - v3 算法：新名字会重新计算出一个新 UUID（name 的 namespaced hash），
-    //     旧 UUID 与新 UUID 不同，需要 DELETE 旧 + POST 新。
+    // UUID 不变时同步改名；旧数据仍有不同 UUID 时删除旧条目并重新注册。
     $events->listen('player.renamed', function ($player, $old) use ($unionPush) {
         if (! $old || $old->name === $player->name) {
             return;
@@ -112,14 +103,12 @@ return function (Filter $filter, Dispatcher $events) {
         $oldRow = DB::table('uuid')->where('name', $old->name)->first();
 
         if ($oldRow && $oldRow->uuid !== $newUuid) {
-            // v3 路径：旧 UUID 还在表里（updating 钩子未启用）
             $unionPush('delete', option('union_api_root').'/profile/'.$oldRow->uuid);
             $unionPush('post', option('union_api_root').'/profile', [
                 'id' => $newUuid,
                 'name' => $player->name,
             ]);
         } else {
-            // v4 路径：UUID 不变，只是改名
             $unionPush('put', option('union_api_root').'/profile/'.$newUuid, [
                 'name' => $player->name,
             ]);
@@ -131,7 +120,15 @@ return function (Filter $filter, Dispatcher $events) {
     // 向用户中心首页添加「快速配置启动器」板块
     if (option('ygg_show_config_section')) {
         $filter->add('grid:user.index', function ($grid) {
-            $grid['widgets'][0][0][] = 'Yggdrasil::dnd';
+            foreach ($grid['widgets'] as &$row) {
+                foreach ($row as &$column) {
+                    if (is_array($column) && in_array('user.widgets.dashboard.announcement', $column, true)) {
+                        $column[] = 'Yggdrasil::dnd';
+
+                        return $grid;
+                    }
+                }
+            }
 
             return $grid;
         });
@@ -162,7 +159,7 @@ return function (Filter $filter, Dispatcher $events) {
                 require __DIR__.'/routes.php';
             });
 
-        // ===== MUA 联合认证：受信入站回调（中央服务器带签名访问） =====
+        // MUA 中央服务器的入站回调必须验签。
         Route::namespace('Yggdrasil\Controllers')->group(function () {
             Route::middleware(['Yggdrasil\Middleware\UnionHostVerify'])
                 ->prefix('api/union/member')
@@ -199,13 +196,24 @@ return function (Filter $filter, Dispatcher $events) {
                 });
             });
 
-        // 正版绑定页面（普通用户可访问）
+        // Bridge API 使用独立 Bearer 密钥，不接受普通用户会话。
+        Route::middleware(['Yggdrasil\\Middleware\\PremiumBridgeAuth', 'throttle:180,1'])
+            ->namespace('Yggdrasil\\Controllers')
+            ->prefix('api/trusted-bridge')
+            ->group(function () {
+                Route::post('candidate', 'PremiumBridgeController@candidate');
+                Route::post('verify-login', 'PremiumBridgeController@verifyLogin');
+                Route::post('resolve', 'PremiumBridgeController@resolve');
+            });
+
+        // 绑定页面及确认操作要求皮肤站用户登录。
         Route::middleware(['web', 'auth'])
             ->namespace('Yggdrasil\Controllers')
             ->prefix('yggdrasil/mojang')
             ->group(function () {
                 Route::get('bind', 'MojangBindController@index');
                 Route::post('bind', 'MojangBindController@requestBind');
+                Route::post('confirm-bind', 'MojangBindController@confirmBind')->middleware('throttle:10,1');
                 Route::post('cancel-bind', 'MojangBindController@cancelBind');
                 Route::post('unbind', 'MojangBindController@unbind');
             });

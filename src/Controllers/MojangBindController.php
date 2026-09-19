@@ -22,6 +22,7 @@ class MojangBindController extends Controller
         $pending = Schema::hasTable('pending_mojang_bind')
             ? DB::table('pending_mojang_bind')
                 ->where('user_id', $uid)
+                ->whereNotNull('mojang_uuid')
                 ->where('created_at', '>=', now()->subMinutes(15))
                 ->first()
             : null;
@@ -90,7 +91,50 @@ class MojangBindController extends Controller
         DB::table('pending_mojang_bind')->updateOrInsert(['user_id' => $uid], $values);
 
         return redirect(url('yggdrasil/mojang/bind'))
-            ->with('success', "已确认正版账号「{$resolved['name']}」。请在 15 分钟内用该正版账号加入服务器，检测到后将自动完成绑定。");
+            ->with('success', "请在 15 分钟内用正版账号「{$resolved['name']}」加入 PKUMC，取得验证码后在此确认绑定。");
+    }
+
+    public function confirmBind(Request $request)
+    {
+        $code = trim((string) $request->input('code'));
+        if (! preg_match('/^[0-9]{6}$/D', $code)) {
+            return redirect(url('yggdrasil/mojang/bind'))->with('error', '验证码格式不正确。');
+        }
+        $uid = auth()->user()->uid;
+        try {
+            $confirmed = DB::transaction(function () use ($uid, $code) {
+                $user = \App\Models\User::where('uid', $uid)->lockForUpdate()->first();
+                abort_unless($user && $user->permission != \App\Models\User::BANNED, 403);
+                $pending = DB::table('pending_mojang_bind')->where('user_id', $uid)
+                    ->where('created_at', '>=', now()->subMinutes(15))->lockForUpdate()->first();
+                abort_unless($pending && $pending->mojang_uuid, 422);
+                $proof = DB::table('premium_binding_codes')->where('mojang_uuid', $pending->mojang_uuid)
+                    ->where('expires_at', '>', now())->lockForUpdate()->first();
+                if (! $proof || $proof->attempts >= 5) {
+                    return false;
+                }
+                if (! hash_equals($proof->code_hash, hash('sha256', $proof->mojang_uuid.':'.$code))) {
+                    // Return normally so the failed-attempt counter is committed.
+                    DB::table('premium_binding_codes')->where('mojang_uuid', $proof->mojang_uuid)->increment('attempts');
+                    return false;
+                }
+                abort_unless(Player::where('uid', $uid)->exists(), 422);
+                abort_if(DB::table('mojang_verifications')->where('user_id', $uid)
+                    ->orWhere('mojang_uuid', $proof->mojang_uuid)->exists(), 409);
+                DB::table('mojang_verifications')->insert(['user_id' => $uid, 'mojang_uuid' => $proof->mojang_uuid]);
+                DB::table('premium_binding_metadata')->updateOrInsert(['user_id' => $uid], [
+                    'mojang_uuid' => $proof->mojang_uuid, 'verified_at' => now(),
+                ]);
+                DB::table('premium_binding_codes')->where('mojang_uuid', $proof->mojang_uuid)->delete();
+                DB::table('pending_mojang_bind')->where('user_id', $uid)->delete();
+                return true;
+            });
+            abort_unless($confirmed, 422);
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface | \Illuminate\Database\QueryException $e) {
+            return redirect(url('yggdrasil/mojang/bind'))->with('error', '验证码无效、已过期、错误次数达到 5 次或账号已绑定，请用正版客户端重新进服获取验证码。');
+        }
+
+        return redirect(url('yggdrasil/mojang/bind'))->with('success', '正版账号验证并绑定成功。');
     }
 
     /**
@@ -100,7 +144,7 @@ class MojangBindController extends Controller
     protected function resolveMojangProfile(string $name): ?array
     {
         try {
-            $response = Http::get('https://api.mojang.com/users/profiles/minecraft/'.$name);
+            $response = Http::timeout(5)->get('https://api.mojang.com/users/profiles/minecraft/'.$name);
 
             if ($response->status() !== 200) {
                 return null;
@@ -131,9 +175,17 @@ class MojangBindController extends Controller
 
     public function unbind()
     {
-        DB::table('mojang_verifications')
-            ->where('user_id', auth()->user()->uid)
-            ->delete();
+        DB::transaction(function () {
+            $uid = auth()->user()->uid;
+            \App\Models\User::where('uid', $uid)->lockForUpdate()->first();
+            $binding = DB::table('mojang_verifications')->where('user_id', $uid)->first();
+            if ($binding) {
+                DB::table('premium_binding_codes')->where('mojang_uuid', $binding->mojang_uuid)->delete();
+            }
+            DB::table('mojang_verifications')->where('user_id', $uid)->delete();
+            DB::table('premium_binding_metadata')->where('user_id', $uid)->delete();
+            DB::table('pending_mojang_bind')->where('user_id', $uid)->delete();
+        });
 
         return redirect(url('yggdrasil/mojang/bind'))
             ->with('success', '已解除正版账号绑定。');

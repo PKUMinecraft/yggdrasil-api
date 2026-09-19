@@ -131,6 +131,14 @@ class Profile
         if (! $result) {
             // 分配新的 UUID
             $result = UUID::generateMinecraftUuid($name)->clearDashes();
+
+            // v3 算法 + 改名保持 UUID 后，新注册的名字可能恰好撞上别人改名前的旧 UUID
+            //（按名字哈希算出来的）。撞上时回落到随机 v4，避免两个角色共用一个 UUID。
+            if (DB::table('uuid')->where('uuid', $result)->exists()) {
+                $result = UUID::generate(4)->clearDashes();
+                Log::channel('ygg')->info("Uuid conflict on allocating for player [$name], fell back to random v4 uuid [$result]");
+            }
+
             DB::table('uuid')->insert(['name' => $name, 'uuid' => $result]);
 
             Log::channel('ygg')->info("New uuid [$result] allocated to player [$name]");
