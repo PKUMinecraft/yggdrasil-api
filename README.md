@@ -28,7 +28,7 @@ php artisan view:clear
 
 已有站点升级时也要执行上述命令，并保留数据库、配置和密钥。
 
-基础外置登录配置见[上游 Wiki](https://github.com/bs-community/yggdrasil-api/wiki)。正版绑定和跨服功能还需部署 **Trusted Bridge Auth 4.1.0**：皮肤站与本地代理配置相同的 API 密钥，两服代理分别使用 `local` 和 `premium` 身份模式。密钥不随本仓库提供。
+基础外置登录配置见[上游 Wiki](https://github.com/bs-community/yggdrasil-api/wiki)。正版绑定和跨服功能还需部署 **Trusted Bridge Auth 4.1.0**：皮肤站与本地代理配置相同的 API 密钥，两服代理分别使用 `local` 和 `premium` 身份模式。
 
 ## 玩家如何绑定
 
