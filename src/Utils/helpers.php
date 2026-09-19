@@ -59,6 +59,16 @@ if (! function_exists('ygg_log')) {
     function ygg_log($params)
     {
         if (env('YGG_VERBOSE_LOG')) {
+            // Only scalar diagnostic fields may enter the admin log, never credentials.
+            $parameters = json_decode($params['parameters'] ?? '[]', true);
+            $safe = [];
+            foreach (['username', 'name', 'uuid'] as $field) {
+                if (is_array($parameters) && isset($parameters[$field]) && is_string($parameters[$field])) {
+                    $safe[$field] = $parameters[$field];
+                }
+            }
+            $encoded = json_encode($safe);
+            $params['parameters'] = $encoded !== false && strlen($encoded) <= 255 ? $encoded : '{}';
             $data = array_merge([
                 'action' => 'undefined',
                 'user_id' => 0,

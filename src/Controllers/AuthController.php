@@ -20,19 +20,19 @@ class AuthController extends Controller
     public function authenticate(Request $request)
     {
         /**
-         * 注意，新版账户验证中 username 字段填的是邮箱，
-         * 只有旧版的用户填的才是用户名（legacy = true）
+         * Note: in the new account verification flow, the `username` field actually holds the email,
+         * only legacy users fill in a plain username (legacy = true).
          */
         $identification = strtolower($request->input('username'));
         Log::channel('ygg')->info("User [$identification] is try to authenticate with", [$request->except(['username', 'password'])]);
         $user = $this->checkUserCredentials($request);
 
-        // clientToken 原样返回，如果没提供就给客户端生成一个
+        // clientToken is returned as-is; generate one for the client if it wasn't provided
         $clientToken = $request->input('clientToken', UUID::generate()->clearDashes());
-        // clientToken 原样返回，生成新 accessToken 并格式化为不带符号的 UUID
+        // Generate a new accessToken and format it as a UUID without dashes
         $accessToken = UUID::generate()->clearDashes();
 
-        // 吊销该用户的其他令牌
+        // Revoke this user's other tokens
         if ($cache = Cache::get("ID_$identification")) {
             $expiredAccessToken = unserialize($cache)->accessToken;
 
@@ -40,11 +40,11 @@ class AuthController extends Controller
             Cache::forget("TOKEN_$expiredAccessToken");
         }
 
-        // 实例化并存储 Token
+        // Instantiate and store the token
         $token = new Token($clientToken, $accessToken);
         $token->owner = $identification;
 
-        // 准备响应
+        // Prepare the response
         $availableProfiles = $this->getAvailableProfiles($user);
 
         $result = [
@@ -54,14 +54,14 @@ class AuthController extends Controller
         ];
 
         if ($request->input('requestUser')) {
-            // 用户 ID 根据其邮箱生成
+            // The user ID is generated from their email
             $result['user'] = [
                 'id' => UUID::generate(5, $user->email, UUID::NS_DNS)->clearDashes(),
                 'properties' => [],
             ];
         }
 
-        // 当用户只有一个角色时自动帮他选择
+        // Automatically pick the character for the user when they only have one
         if (!empty($availableProfiles) && count($availableProfiles) === 1) {
             $result['selectedProfile'] = $availableProfiles[0];
             $token->profileId = $availableProfiles[0]['id'];
@@ -114,7 +114,7 @@ class AuthController extends Controller
 
         $result = [
             'accessToken' => $token->accessToken,
-            'clientToken' => $token->clientToken, // 原样返回
+            'clientToken' => $token->clientToken, // Returned as-is
             'availableProfiles' => $availableProfiles
         ];
 
@@ -125,7 +125,7 @@ class AuthController extends Controller
             ];
         }
 
-        // 当指定了 selectedProfile 时
+        // When a selectedProfile is specified
         if ($selected = $request->get('selectedProfile')) {
             if (! Player::where('name', $selected['name'])->first()) {
                 throw new IllegalArgumentException(trans('Yggdrasil::exceptions.player.not-existed'));
@@ -154,7 +154,7 @@ class AuthController extends Controller
             }
         }
 
-        // 上面那一大票检测完了，最后再刷新令牌
+        // Now that all the checks above have passed, finally refresh the token
         Cache::forget("TOKEN_$accessToken");
         Log::channel('ygg')->info("The old access token [$accessToken] is now revoked");
 
@@ -215,7 +215,7 @@ class AuthController extends Controller
         Log::channel('ygg')->info("User [$identification] is try to signout");
         $user = $this->checkUserCredentials($request, false);
 
-        // 吊销所有令牌
+        // Revoke all tokens
         if ($cache = Cache::get("ID_$identification")) {
             $accessToken = unserialize($cache)->accessToken;
 
@@ -240,7 +240,7 @@ class AuthController extends Controller
 
         Log::channel('ygg')->info("Try to invalidate an access token", compact('clientToken', 'accessToken'));
 
-        // 据说不用检查 clientToken 与 accessToken 是否匹配
+        // Reportedly there's no need to check whether clientToken matches accessToken here
         if ($cache = Cache::get("TOKEN_$accessToken")) {
             $token = unserialize($cache);
             $identification = strtolower($token->owner);
@@ -259,7 +259,7 @@ class AuthController extends Controller
             Log::channel('ygg')->error("Invalid access token [$accessToken], nothing to do");
         }
 
-        // 据说无论操作是否成功都应该返回 204
+        // Reportedly a 204 should be returned regardless of whether the operation succeeded
         return response('')->setStatusCode(204);
     }
 
@@ -311,13 +311,13 @@ class AuthController extends Controller
         return $profiles;
     }
 
-    // 推荐使用 Redis 作为缓存驱动
+    // Redis is recommended as the cache driver
     protected function storeToken(Token $token, $identification)
     {
         $timeToFullyExpired = option('ygg_token_expire_2');
-        // 使用 accessToken 作为缓存主键
+        // Use accessToken as the cache primary key
         Cache::put("TOKEN_{$token->accessToken}", serialize($token), $timeToFullyExpired);
-        // TODO: 实现一个用户可以签发多个 Token
+        // TODO: allow a single user to issue multiple tokens
         Cache::put("ID_$identification", serialize($token), $timeToFullyExpired);
 
         Log::channel('ygg')->info("Serialized token stored to cache with expiry time $timeToFullyExpired minutes", [

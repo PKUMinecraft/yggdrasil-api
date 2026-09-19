@@ -1,13 +1,13 @@
 {
   "name": "yggdrasil-api",
-  "version": "4.4.0",
+  "version": "4.4.2",
   "title": "Yggdrasil API",
   "description": "Yggdrasil API + authlib-injector = ✨",
   "author": "printempw",
   "url": "https://github.com/PKUMinecraft/yggdrasil-api/",
   "namespace": "Yggdrasil",
   "require": {
-    "blessing-skin-server": "^5.0.0"
+    "blessing-skin-server": "^6.0.2"
   },
   "enchants": {
     "config": "Controllers\\ConfigController",

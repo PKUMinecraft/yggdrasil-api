@@ -7,10 +7,15 @@ use Illuminate\Routing\Controller;
 use Yggdrasil\Exceptions\IllegalArgumentException;
 
 /**
- * 联盟 multi-backend 重签端点：接收任意 profile，对其每条 property 的 value
- * 用本站（即联盟共享）私钥重新签名后返回。
+ * Union multi-backend re-signing endpoint: takes an arbitrary profile and re-signs the `value`
+ * of each of its properties with this site's (i.e. the union's shared) private key, then returns it.
  *
- * 这是 MUA 联盟用来在跨站交换 profile 时统一签名版本的兜底机制。
+ * This is the fallback mechanism the MUA union uses to normalize signature versions when
+ * exchanging profiles across sites.
+ *
+ * restore() blindly signs whatever is submitted (it doesn't verify that the profile corresponds to
+ * a real player), so the route is restricted to the central server only via the UnionHostVerify
+ * middleware, to prevent it from being abused as a signing oracle for arbitrary data.
  */
 class MultiBackendController extends Controller
 {

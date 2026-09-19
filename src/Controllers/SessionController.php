@@ -13,6 +13,7 @@ use Illuminate\Http\Request;
 use Yggdrasil\Models\Profile;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Http;
+use Yggdrasil\Utils\UnionClient;
 use Yggdrasil\Exceptions\ForbiddenOperationException;
 
 class SessionController extends Controller
@@ -343,9 +344,7 @@ class SessionController extends Controller
         $url = rtrim($apiRoot, '/').'/profile/unmapped/byuuid/'.$uuid;
 
         try {
-            $response = Http::timeout(3.0)
-                ->withHeaders(['X-Union-Member-Key' => $memberKey])
-                ->get($url);
+            $response = UnionClient::request('get', $url, null, 3.0);
         } catch (\Exception $e) {
             Log::channel('ygg')->warning("Union byuuid lookup failed for [$uuid]: ".$e->getMessage());
             return null;

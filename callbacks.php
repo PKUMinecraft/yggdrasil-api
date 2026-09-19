@@ -41,7 +41,7 @@ return [
                 $table->dateTime('created_at');
             });
         } elseif (! Schema::hasColumn('pending_mojang_bind', 'mojang_uuid')) {
-            // 旧版本升级：补上绑定申请时解析出的正版 UUID 列
+            // Upgrading from an older version: add the column for the premium UUID resolved when the bind request was made
             Schema::table('pending_mojang_bind', function ($table) {
                 $table->string('mojang_uuid', 32)->nullable();
             });
@@ -59,7 +59,7 @@ return [
             'ygg_show_activities_section' => 'true',
             'ygg_enable_ali' => 'true',
             'ygg_restore_api' => 'true',
-            // MUA 联合认证
+            // MUA union authentication
             'union_api_root' => 'https://skin.mualliance.ltd/api/union',
             'union_member_key' => '',
             'union_server_list' => '{}',
@@ -79,7 +79,7 @@ return [
             'ygg_token_expire_2' => '1200'
         ];
 
-        // 原来的令牌过期时间默认值太低了，调高点
+        // The original default token expiry times were too low, bump them up
         foreach ($originalDefaultValue as $key => $value) {
             if (Option::get($key) == $value) {
                 Option::set($key, $items[$key]);

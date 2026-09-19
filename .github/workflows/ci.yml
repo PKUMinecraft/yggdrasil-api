@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['8.1', '8.2', '8.3']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup PHP ${{ matrix.php-version }}
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          coverage: none
+
+      - name: Union authentication and log regression checks
+        run: php tests/union-regression.php
+
+      - name: PHP syntax check
+        run: |
+          status=0
+          while IFS= read -r -d '' file; do
+            php -l "$file" || status=1
+          done < <(find . -path ./.git -prune -o -name '*.php' -print0)
+          exit $status
+
+      - name: JS syntax check
+        run: |
+          status=0
+          for f in assets/*.js; do
+            node --check "$f" || status=1
+          done
+          exit $status
+
+      - name: Validate package.json
+        run: python3 -m json.tool package.json > /dev/null
+
+      - name: Validate lang YAML files
+        run: |
+          pip install --quiet pyyaml
+          status=0
+          for f in lang/*/*.yml; do
+            python3 -c "import yaml, sys; yaml.safe_load(open(sys.argv[1]))" "$f" || { echo "::error::Invalid YAML: $f"; status=1; }
+          done
+          exit $status

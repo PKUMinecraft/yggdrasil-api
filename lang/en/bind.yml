@@ -1,1 +1,13 @@
 menu_title: Bind Premium Account
+
+error:
+  invalid_name: 'Please enter a valid Minecraft username (1-16 letters, digits, or underscores).'
+  no_player: 'Please create a character on the Player Management page first, then bind your premium account.'
+  already_bound: 'You have already bound a premium account. Unbind it first if you want to change it.'
+  mojang_not_found: 'Could not find the premium account ":name" on Mojang. Please check the spelling and try again.'
+  mojang_taken: 'This premium account has already been bound by another user.'
+
+success:
+  request_submitted: 'Confirmed premium account ":name". Connect with that account within 15 minutes, then enter the six-digit code on this page to confirm binding.'
+  cancelled: 'Bind request cancelled.'
+  unbound: 'Your premium account has been unbound.'

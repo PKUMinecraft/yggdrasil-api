@@ -1,1 +1,13 @@
 menu_title: 绑定正版账号
+
+error:
+  invalid_name: '请输入有效的 Minecraft 用户名（1-16位字母、数字或下划线）。'
+  no_player: '请先在角色管理页面创建一个角色，再进行正版账号绑定。'
+  already_bound: '您已绑定正版账号，如需更换请先解除绑定。'
+  mojang_not_found: '未能在 Mojang 找到正版账号「:name」，请检查拼写后重试。'
+  mojang_taken: '该正版账号已被其他用户绑定。'
+
+success:
+  request_submitted: '已确认正版账号「:name」。请在 15 分钟内用该正版账号连接服务器，再将六位验证码填回本页确认绑定。'
+  cancelled: '已取消绑定申请。'
+  unbound: '已解除正版账号绑定。'

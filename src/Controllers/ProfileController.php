@@ -22,7 +22,7 @@ class ProfileController extends Controller
             Log::channel('ygg')->info("Returning profile for uuid [$uuid]", [$profile->serialize()]);
             return response()->json()->setContent($profile);
         } else {
-            // UUID 不存在就返回 204
+            // Return 204 if the UUID doesn't exist
             Log::channel('ygg')->info("Profile not found for uuid [$uuid]");
             return response(null)->setStatusCode(204);
         }
@@ -33,7 +33,7 @@ class ProfileController extends Controller
         $player = Player::where('name', $name)->first();
 
         if (! $player) {
-            // 角色不存在
+            // Character doesn't exist
             return response(null)->setStatusCode(204);
         }
 

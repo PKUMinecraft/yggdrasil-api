@@ -7,13 +7,14 @@ use Log;
 use App\Models\Player;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
-use Illuminate\Support\Facades\Http;
+use Yggdrasil\Utils\UnionClient;
 
 /**
- * MUA 联合认证客户端 — 处理本站对中央服务器的拉取以及中央服务器到本站的回调。
+ * MUA union authentication client — handles this site's pulls from the central server as well as
+ * the central server's callbacks into this site.
  *
- * 受信回调（updateList / updatePrivateKey / serverUpdatesBackendKey / triggerSync /
- * remapUUID / diagnose）由 UnionHostVerify 中间件验签。
+ * Trusted callbacks (updateList / updatePrivateKey / serverUpdatesBackendKey / triggerSync /
+ * remapUUID / diagnose) are signature-verified by the UnionHostVerify middleware.
  */
 class UnionController extends Controller
 {
@@ -23,20 +24,18 @@ class UnionController extends Controller
             'yggdrasilApiVersion' => plugin('yggdrasil-api')->version,
             'serverListVersion' => option('union_server_list_version'),
             'privateKeyVersion' => option('union_private_key_version'),
-            // 本 fork 暂不实现 unionBlacklist / unionOAuth2 等扩展能力
+            // This fork doesn't implement extensions such as unionBlacklist / unionOAuth2 yet
             'enabledFeatures' => [],
         ])->header('Access-Control-Allow-Origin', '*');
     }
 
     /**
-     * 中央服务器推送：拉取最新的联盟成员站点列表。
+     * Pushed by the central server: pull the latest union member site list.
      */
     public function updateList()
     {
         try {
-            $response = Http::timeout(5.0)
-                ->withHeaders(['X-Union-Member-Key' => option('union_member_key')])
-                ->get(option('union_api_root').'/serverlist');
+            $response = UnionClient::request('get', option('union_api_root').'/serverlist');
         } catch (\Exception $e) {
             return ['status' => 'error', 'message' => $e->getMessage()];
         }
@@ -58,16 +57,14 @@ class UnionController extends Controller
     }
 
     /**
-     * 中央服务器推送：拉取最新的联盟共享私钥。
+     * Pushed by the central server: pull the latest union shared private key.
      *
-     * 注意：成功后本站的 ygg_private_key 会被联盟统一密钥覆盖。
+     * Note: on success, this site's ygg_private_key is overwritten by the union's unified key.
      */
     public function updatePrivateKey()
     {
         try {
-            $response = Http::timeout(5.0)
-                ->withHeaders(['X-Union-Member-Key' => option('union_member_key')])
-                ->get(option('union_api_root').'/privatekey');
+            $response = UnionClient::request('get', option('union_api_root').'/privatekey');
         } catch (\Exception $e) {
             return ['status' => 'error', 'message' => $e->getMessage()];
         }
@@ -88,7 +85,7 @@ class UnionController extends Controller
     }
 
     /**
-     * 中央服务器推送：换发新的 member_key。
+     * Pushed by the central server: issue a new member_key.
      */
     public function serverUpdatesBackendKey(Request $request)
     {
@@ -98,23 +95,21 @@ class UnionController extends Controller
     }
 
     /**
-     * 把本站 `players` 与 `uuid` 表的 (name → uuid) 映射同步到中央服务器。
+     * Syncs this site's `players` + `uuid` table (name → uuid) mappings to the central server.
      *
-     * 中央接收端只关心 name → uuid，pid 字段对它无意义；
-     * 因此 fork 仓库的 `(id, name, uuid)` schema 也能正常工作。
+     * The central receiving end only cares about name → uuid; the `pid` field is meaningless to it,
+     * so this fork's `(id, name, uuid)` schema works fine too.
      */
     public function triggerSync()
     {
         $names = Player::all()->pluck('name');
         $uuids = DB::table('uuid')->pluck('uuid', 'name');
 
-        // 只同步既存在角色、又有 UUID 映射的条目
+        // Only sync entries that have both an existing character and a UUID mapping
         $profiles = $uuids->only($names->all())->flip();
 
         try {
-            $response = Http::timeout(15.0)
-                ->withHeaders(['X-Union-Member-Key' => option('union_member_key')])
-                ->post(option('union_api_root').'/sync', ['profileList' => $profiles]);
+            $response = UnionClient::request('post', option('union_api_root').'/sync', ['profileList' => $profiles], 15.0);
         } catch (\Exception $e) {
             return ['status' => 'error', 'message' => $e->getMessage()];
         }
@@ -132,7 +127,8 @@ class UnionController extends Controller
     }
 
     /**
-     * 中央服务器推送：把本地 uuid 表里冲突的 UUID 改写为联盟仲裁后的新 UUID。
+     * Pushed by the central server: rewrite conflicting UUIDs in the local uuid table to the
+     * new UUID decided by union arbitration.
      */
     public function remapUUID(Request $request)
     {
@@ -146,7 +142,8 @@ class UnionController extends Controller
     }
 
     /**
-     * 中央服务器推送：回显 nonce/timestamp，用于诊断双向连通性与时钟偏差。
+     * Pushed by the central server: echo back a nonce/timestamp, used to diagnose bidirectional
+     * connectivity and clock skew.
      */
     public function diagnose(Request $request)
     {
@@ -157,14 +154,13 @@ class UnionController extends Controller
     }
 
     /**
-     * 后台管理员手动触发：让中央服务器反向 ping 本站，回收联通性诊断结果。
+     * Manually triggered by an admin: asks the central server to ping this site back, and collects
+     * the connectivity diagnostic result.
      */
     public function triggerDiagnose()
     {
         try {
-            $response = Http::timeout(10.0)
-                ->withHeaders(['X-Union-Member-Key' => option('union_member_key')])
-                ->post(option('union_api_root').'/diagnose');
+            $response = UnionClient::request('post', option('union_api_root').'/diagnose', null, 10.0);
 
             if ($response->ok()) {
                 return ['status' => 'ok', 'data' => $response->json()];

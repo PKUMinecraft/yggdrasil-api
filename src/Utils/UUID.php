@@ -98,11 +98,6 @@ class Uuid
      */
     const NS_X500 = '6ba7b814-9dad-11d1-80b4-00c04fd430c8';
 
-    /**
-     * @var string
-     */
-    protected static $randomFunc = 'randomMcrypt';
-
     protected $bytes;
     protected $hex;
     protected $string;
@@ -250,9 +245,8 @@ class Uuid
     }
 
     /**
-     * Trying for php 7 secure random generator, falling back to openSSL and Mcrypt.
-     * If none of the above is found, falls back to mt_rand
-     * Since laravel 4.* and 5.0 requires Mcrypt and 5.1 requires OpenSSL the fallback should never be used.
+     * Trying for php 7 secure random generator, falling back to openSSL.
+     * If neither is found, falls back to mt_rand.
      *
      * @throws Exception
      * @return string
@@ -263,8 +257,6 @@ class Uuid
             return 'randomPhp7';
         } elseif (function_exists('openssl_random_pseudo_bytes')) {
             return 'randomOpenSSL';
-        } elseif (function_exists('mcrypt_encrypt')) {
-            return 'randomMcrypt';
         }
 
         // This is not the best randomizer (using mt_rand)...
@@ -416,18 +408,6 @@ class Uuid
     protected static function randomOpenSSL($bytes)
     {
         return openssl_random_pseudo_bytes($bytes);
-    }
-
-    /**
-     * Get the specified number of random bytes, using mcrypt_create_iv().
-     * Randomness is returned as a string of bytes.
-     *
-     * @param $bytes
-     * @return string
-     */
-    protected static function randomMcrypt($bytes)
-    {
-        return mcrypt_create_iv($bytes, MCRYPT_DEV_URANDOM);
     }
 
     /**

@@ -15,7 +15,7 @@ PKUMinecraft 维护的 Blessing Skin 皮肤站插件，基于 [bs-community/yggd
 
 ## 安装
 
-适用于 Blessing Skin 5.x，当前使用 PHP 8.1 验证。
+适用于 Blessing Skin 6.0.2 及以上 6.x 版本，当前使用 PHP 8.1 验证。
 
 1. 将源码放入皮肤站的 `plugins/yggdrasil-api` 目录。
 2. 在皮肤站后台启用插件。

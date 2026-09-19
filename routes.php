@@ -3,7 +3,7 @@
 Route::prefix('authserver')
     ->middleware(['Yggdrasil\Middleware\CheckContentType'])
     ->group(function () {
-        // 防止暴力破解密码
+        // Prevent password brute-forcing
         Route::middleware(['Yggdrasil\Middleware\Throttle'])
             ->group(function () {
                 Route::post('authenticate', 'AuthController@authenticate');
@@ -25,6 +25,9 @@ Route::prefix('sessionserver/session/minecraft')->group(function () {
 
 Route::post('api/profiles/minecraft', 'ProfileController@searchProfile');
 
-// MUA 联合认证 multi-backend 重签端点
-Route::get ('restore', 'MultiBackendController@hello');
-Route::post('restore', 'MultiBackendController@restore');
+// MUA union authentication multi-backend re-signing endpoint
+// hello needs no verification and is just a health check; restore blindly signs whatever is
+// submitted, so it must be restricted to the central server only.
+Route::get('restore', 'MultiBackendController@hello');
+Route::post('restore', 'MultiBackendController@restore')
+    ->middleware(['Yggdrasil\Middleware\UnionHostVerify']);

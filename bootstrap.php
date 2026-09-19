@@ -6,7 +6,7 @@ use App\Services\Hook;
 use Blessing\Filter;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
+use Yggdrasil\Utils\UnionClient;
 use Illuminate\Support\Facades\Log;
 use Yggdrasil\Models\Profile;
 
@@ -61,8 +61,7 @@ return function (Filter $filter, Dispatcher $events) {
             return;
         }
         try {
-            $req = Http::timeout(5.0)->withHeaders(['X-Union-Member-Key' => option('union_member_key')]);
-            $response = $payload === null ? $req->{$method}($url) : $req->{$method}($url, $payload);
+            $response = UnionClient::request($method, $url, $payload);
             if (! $response->successful()) {
                 Log::channel('ygg')->info('Union sync failed.', [
                     'method' => $method, 'url' => $url, 'status' => $response->status(),

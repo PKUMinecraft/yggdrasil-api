@@ -29,7 +29,7 @@ class Token
         return (time() - $this->createdAt - option('ygg_token_expire_2')) < 0;
     }
 
-    // 这个方法只是为了方便写日志
+    // This method exists purely to make logging convenient
     public function serialize()
     {
         return [
